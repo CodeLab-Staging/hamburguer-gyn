@@ -43,7 +43,8 @@ jobs:
                 }
               }
             `, {
-              org: "CodeLab-Staging",
+              owner: context.repo.owner,
+              repo: context.repo.repo,
               number: projectNumber
             });
 
