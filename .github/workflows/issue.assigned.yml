@@ -11,7 +11,7 @@ jobs:
       - name: Move issue to In Progress
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PROJECTS_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const projectNumber = 2;                 // Número do seu projeto v2
             const fieldName = "Status";              // Nome do campo do project
