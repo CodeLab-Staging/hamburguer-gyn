@@ -1,4 +1,4 @@
-name: Move issue to "In Progress" when assigned
+name: Move Issue to In Progress
 
 on:
   issues:
@@ -9,32 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Move issue to "In Progress"
-        uses: actions/github-script@v6
+        uses: alex-page/github-project-automation-plus@v0.8.3
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { issue, repository } = context.payload;
-            const projectNumber = 1; // Número do seu projeto (encontre na URL do projeto)
-            const columnName = "In progress"; // Nome da coluna de destino
-
-            // Buscar o ID do projeto
-            const projects = await github.rest.projects.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            const project = projects.data.find(p => p.number === projectNumber);
-            if (!project) throw new Error(`Projeto #${projectNumber} não encontrado`);
-
-            // Buscar ID da coluna "In progress"
-            const columns = await github.rest.projects.listColumns({
-              project_id: project.id,
-            });
-            const column = columns.data.find(c => c.name === columnName);
-            if (!column) throw new Error(`Coluna "${columnName}" não encontrada`);
-
-            // Mover a issue para a coluna
-            await github.rest.projects.createCard({
-              column_id: column.id,
-              content_id: issue.id,
-              content_type: 'Issue',
-            });
+          project: "Nome do seu projeto"      # Nome do Project Board
+          column: "In Progress"               # Coluna destino
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
