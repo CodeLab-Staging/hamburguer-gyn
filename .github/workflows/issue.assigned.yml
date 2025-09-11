@@ -2,10 +2,9 @@ name: Move Issue to In Progress on Assign
 
 on:
   issues:
-    types: [assigned]  # Aciona quando um assignee é adicionado a uma issue
+    types: [assigned]
 
 permissions:
-  contents: read
   issues: write
   projects: write
 
@@ -16,36 +15,18 @@ jobs:
       - name: Move issue to In Progress
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.CODELAB_STAGING_TOKEN }}   # Use seu PAT aqui
+          github-token: ${{ secrets.CODELAB_STAGING_TOKEN }}   # Substitua pelo seu PAT
           script: |
-            const projectNumber = 2;
-            const fieldName = "Status";
-            const optionName = "In Progress";
-            const orgName = "CodeLab-Staging";   # Nome da organização
+            const projectNumber = 2;  // Altere se necessário (ver número na URL do projeto)
+            const orgName = "CodeLab-Staging";   // Substitua pelo seu nome de usuário ou organização
 
-            // 1. Obter ID do projeto
+            // Obter ID do projeto
             const projectQuery = await github.graphql(`
               query($org: String!, $number: Int!) {
                 organization(login: $org) {
                   projectV2(number: $number) {
                     id
                     title
-                    fields(first: 20) {
-                      nodes {
-                        ... on ProjectV2Field {
-                          id
-                          name
-                        }
-                        ... on ProjectV2SingleSelectField {
-                          id
-                          name
-                          options {
-                            id
-                            name
-                          }
-                        }
-                      }
-                    }
                   }
                 }
               }
@@ -57,41 +38,44 @@ jobs:
             const projectId = projectQuery.organization.projectV2.id;
             console.log('✅ Project ID:', projectId);
 
-            // 2. Encontrar o campo 'Status' e a opção 'In Progress'
-            const field = projectQuery.organization.projectV2.fields.nodes.find(f => f.name === fieldName);
-            if (!field) {
-              throw new Error(`Field "${fieldName}" not found`);
-            }
-
-            const option = field.options.find(o => o.name === optionName);
-            if (!option) {
-              throw new Error(`Option "${optionName}" not found in field "${fieldName}"`);
-            }
-
-            // 3. Obter ID da issue
+            // Obter ID da issue
             const issueId = context.payload.issue.node_id;
 
-            // 4. Atualizar o campo da issue no projeto
-            const updateMutation = await github.graphql(`
-              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-                updateProjectV2ItemFieldValue(input: {
+            // Adicionar issue ao projeto
+            const addItemMutation = await github.graphql(`
+              mutation($projectId: ID!, $contentId: ID!) {
+                addProjectV2ItemById(input: {
                   projectId: $projectId
-                  itemId: $itemId
-                  fieldId: $fieldId
-                  value: {
-                    singleSelectOptionId: $optionId
-                  }
+                  contentId: $contentId
                 }) {
-                  projectV2Item {
+                  item {
                     id
                   }
                 }
               }
             `, {
               projectId: projectId,
-              itemId: issueId,
-              fieldId: field.id,
-              optionId: option.id
+              contentId: issueId
+            });
+
+            console.log('✅ Issue added to project!');
+
+            // Mover para "In Progress" (usando a API REST para mudar de coluna)
+            // Primeiro encontre a coluna "In Progress"
+            const columns = await github.rest.projects.listColumns({
+              project_id: projectId,
+            });
+
+            const inProgressColumn = columns.data.find(c => c.name === "In Progress");
+            if (!inProgressColumn) {
+              throw new Error('Column "In Progress" not found');
+            }
+
+            // Mover a issue para a coluna
+            await github.rest.projects.createCard({
+              column_id: inProgressColumn.id,
+              content_id: issueId,
+              content_type: 'Issue',
             });
 
             console.log('✅ Issue moved to "In Progress"!');
