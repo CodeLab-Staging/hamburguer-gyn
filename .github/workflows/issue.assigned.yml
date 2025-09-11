@@ -6,7 +6,6 @@ on:
 
 permissions:
   issues: write
-  projects: write
 
 jobs:
   move_to_in_progress:
