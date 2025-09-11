@@ -1,8 +1,7 @@
-name: Move issue to In Progress when assigned
-
-on:
-  issues:
-    types: [assigned]
+permissions:
+  contents: read
+  issues: write
+  projects: write
 
 jobs:
   move_to_in_progress:
@@ -11,13 +10,12 @@ jobs:
       - name: Move issue to In Progress
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.CODELAB_STAGING_TOKEN }}   # << aqui usa seu PAT
           script: |
-            const projectNumber = 2;                 // Número do seu projeto v2
-            const fieldName = "Status";              // Nome do campo do project
-            const optionName = "In Progress";        // Opção desejada do campo
+            const projectNumber = 2;
+            const fieldName = "Status";
+            const optionName = "In Progress";
 
-            // 1. Buscar o ID do projeto pelo número
             const projectQuery = await github.graphql(`
               query($org: String!, $number: Int!) {
                 organization(login: $org) {
@@ -43,56 +41,8 @@ jobs:
                 }
               }
             `, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              org: "CodeLab-Staging",   // fixo para sua organização
               number: projectNumber
             });
 
-            const project = projectQuery.organization.projectV2;
-            const projectId = project.id;
-
-            // 2. Buscar o fieldId do campo "Status"
-            const statusField = project.fields.nodes.find(f => f.name === fieldName);
-            const fieldId = statusField.id;
-
-            // 3. Buscar o optionId da opção "In Progress"
-            const optionId = statusField.options.find(o => o.name === optionName).id;
-
-            // 4. Adicionar a issue ao projeto
-            const addItem = await github.graphql(`
-              mutation($projectId:ID!, $issueId:ID!) {
-                addProjectV2ItemById(input: {projectId: $projectId, contentId: $issueId}) {
-                  item {
-                    id
-                  }
-                }
-              }
-            `, {
-              projectId: projectId,
-              issueId: context.payload.issue.node_id
-            });
-
-            const itemId = addItem.addProjectV2ItemById.item.id;
-
-            // 5. Atualizar o campo Status para "In Progress"
-            await github.graphql(`
-              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-                updateProjectV2ItemFieldValue(input: {
-                  projectId: $projectId,
-                  itemId: $itemId,
-                  fieldId: $fieldId,
-                  value: { singleSelectOptionId: $optionId }
-                }) {
-                  projectV2Item {
-                    id
-                  }
-                }
-              }
-            `, {
-              projectId: projectId,
-              itemId: itemId,
-              fieldId: fieldId,
-              optionId: optionId
-            });
-
-            console.log(`✅ Issue #${context.payload.issue.number} movida para In Progress`);
+            console.log("✅ Projeto encontrado:", projectQuery.organization.projectV2.title);
