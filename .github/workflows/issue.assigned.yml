@@ -1,0 +1,16 @@
+name: Move issue when assigned
+
+on:
+  issues:
+    types: [assigned]
+
+jobs:
+  move-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move issue to "In Progress"
+        uses: alex-page/github-project-automation-plus@v0.8.3
+        with:
+          project: "Nome do seu projeto"
+          column: "In Progress"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
