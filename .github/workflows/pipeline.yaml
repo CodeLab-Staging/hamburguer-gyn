@@ -1,0 +1,120 @@
+name: Auto Move Issue to In Progress
+
+on:
+  issues:
+    types: [assigned]
+
+jobs:
+  move-to-in-progress:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Move assigned issue to In Progress
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const issue = context.payload.issue;
+          const assignee = context.payload.assignee;
+          
+          console.log(`Issue #${issue.number} foi atribuída para ${assignee.login}`);
+          
+          try {
+            // Buscar todos os projects do repositório
+            const { data: projects } = await github.rest.projects.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            
+            if (projects.length === 0) {
+              console.log('Nenhum project encontrado no repositório');
+              return;
+            }
+            
+            // Para cada project encontrado
+            for (const project of projects) {
+              console.log(`Processando project: ${project.name}`);
+              
+              // Buscar as colunas do project
+              const { data: columns } = await github.rest.projects.listColumns({
+                project_id: project.id
+              });
+              
+              // Encontrar as colunas "To Do" e "In Progress"
+              const todoColumn = columns.find(col => 
+                col.name.toLowerCase().includes('todo') || 
+                col.name.toLowerCase().includes('to do') ||
+                col.name.toLowerCase().includes('backlog')
+              );
+              
+              const inProgressColumn = columns.find(col => 
+                col.name.toLowerCase().includes('in progress') || 
+                col.name.toLowerCase().includes('doing') ||
+                col.name.toLowerCase().includes('development')
+              );
+              
+              if (!inProgressColumn) {
+                console.log(`Coluna "In Progress" não encontrada no project ${project.name}`);
+                continue;
+              }
+              
+              // Buscar cards da issue nas colunas
+              let issueCard = null;
+              
+              for (const column of columns) {
+                const { data: cards } = await github.rest.projects.listCards({
+                  column_id: column.id
+                });
+                
+                issueCard = cards.find(card => 
+                  card.content_url && 
+                  card.content_url.includes(`/issues/${issue.number}`)
+                );
+                
+                if (issueCard) {
+                  console.log(`Issue encontrada na coluna: ${column.name}`);
+                  break;
+                }
+              }
+              
+              if (issueCard) {
+                // Mover o card para "In Progress"
+                await github.rest.projects.moveCard({
+                  card_id: issueCard.id,
+                  position: 'top',
+                  column_id: inProgressColumn.id
+                });
+                
+                console.log(`Issue #${issue.number} movida para "In Progress" no project ${project.name}`);
+              } else {
+                // Se a issue não está em nenhuma coluna, criar um novo card em "In Progress"
+                await github.rest.projects.createCard({
+                  column_id: inProgressColumn.id,
+                  content_id: issue.id,
+                  content_type: 'Issue'
+                });
+                
+                console.log(`Nova card criada para issue #${issue.number} em "In Progress" no project ${project.name}`);
+              }
+            }
+            
+            // Adicionar comentário na issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `🚀 Esta issue foi automaticamente movida para **In Progress** após ser atribuída para @${assignee.login}`
+            });
+            
+          } catch (error) {
+            console.error('Erro ao processar a issue:', error);
+            
+            // Comentar sobre o erro na issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `⚠️ Erro ao mover automaticamente para "In Progress". Verifique a configuração do project board.`
+            });
+          }
