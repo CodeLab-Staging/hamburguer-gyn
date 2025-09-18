@@ -190,7 +190,7 @@ jobs:
         fi
         
         # Adicionar comentário na issue
-        gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments \
+        gh api repos/$hamburguer-gyn/issues/$ISSUE_NUMBER/comments \
           --method POST \
           --field body="🚀 **Pipeline Automático**
 
