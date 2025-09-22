@@ -170,9 +170,9 @@ jobs:
         UPDATE_RESULT=$(gh api graphql -f query='
           mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
             updateProjectV2ItemFieldValue(input: {
-              projectId: $projectId
-              itemId: $itemId
-              fieldId: $fieldId
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: $fieldId,
               value: {singleSelectOptionId: $optionId}
             }) {
               projectV2Item {
@@ -190,7 +190,7 @@ jobs:
         fi
         
         # Adicionar comentário na issue
-        gh api repos/$hamburguer-gyn/issues/$ISSUE_NUMBER/comments \
+        gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments
           --method POST \
           --field body="🚀 **Pipeline Automático**
 
