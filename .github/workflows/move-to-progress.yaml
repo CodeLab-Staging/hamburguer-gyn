@@ -190,15 +190,17 @@ jobs:
         fi
         
         # Adicionar comentário na issue
-        gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments \
-          --method POST \
-          --field body="🚀 **Pipeline Automático**
+        COMMENT_BODY="🚀 **Pipeline Automático**
 
 Esta issue foi automaticamente movida para **In Progress** após ser atribuída para @$ASSIGNEE
 
 📊 **Status**: TODO → IN PROGRESS  
 🤖 **Ação**: Automática via GitHub Actions  
 ⏰ **Data**: $(date '+%d/%m/%Y às %H:%M')"
+        
+        gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments \
+          --method POST \
+          --field body="$COMMENT_BODY"
         
         echo "💬 Comentário adicionado na issue"
         echo "🎉 Pipeline concluído com sucesso!"
