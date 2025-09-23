@@ -190,7 +190,7 @@ jobs:
         fi
         
         # Adicionar comentário na issue
-        COMMENT_BODY="🚀 **Pipeline Automático**
+COMMENT_BODY="🚀 **Pipeline Automático**
 
 Esta issue foi automaticamente movida para **In Progress** após ser atribuída para @$ASSIGNEE
 
