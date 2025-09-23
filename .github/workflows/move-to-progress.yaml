@@ -27,16 +27,12 @@ jobs:
         run: |
           echo "Número da issue: $ISSUE_NUMBER"
           echo "Repositório: $REPO_NAME"
-
           ISSUE_DATA=$(gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER)
           echo "$ISSUE_DATA" > issue.json
-
           TITLE=$(echo "$ISSUE_DATA" | jq -r .title)
           ASSIGNEE=$(echo "$ISSUE_DATA" | jq -r '.assignee.login // "não atribuído"')
-
           echo "Título da issue: $TITLE"
           echo "Responsável: $ASSIGNEE"
-
           echo "TITLE=$TITLE" >> $GITHUB_ENV
           echo "ASSIGNEE=$ASSIGNEE" >> $GITHUB_ENV
 
@@ -55,11 +51,8 @@ jobs:
               }
             }
           }')
-
           echo "$PROJECT_DATA" | jq .
-
           PROJECT_ID=$(echo "$PROJECT_DATA" | jq -r '.data.repository.projectsV2.nodes[] | select(.title=="Kanban") | .id')
-
           echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
           echo "Projeto encontrado: $PROJECT_ID"
 
@@ -80,11 +73,8 @@ jobs:
               }
             }
           }')
-
           echo "$FIELDS" | jq .
-
           STATUS_FIELD_ID=$(echo "$FIELDS" | jq -r '.data.node.fields.nodes[] | select(.name=="Status") | .id')
-
           echo "STATUS_FIELD_ID=$STATUS_FIELD_ID" >> $GITHUB_ENV
           echo "Campo Status: $STATUS_FIELD_ID"
 
@@ -102,11 +92,8 @@ jobs:
               }
             }
           }')
-
           echo "$ITEM_DATA" | jq .
-
           ITEM_ID=$(echo "$ITEM_DATA" | jq -r '.data.addProjectV2ItemById.item.id')
-
           echo "ITEM_ID=$ITEM_ID" >> $GITHUB_ENV
           echo "Item adicionado ao projeto: $ITEM_ID"
 
@@ -131,13 +118,9 @@ jobs:
               }
             }
           }')
-
           echo "$OPTIONS" | jq .
-
           INPROGRESS_OPTION_ID=$(echo "$OPTIONS" | jq -r '.data.node.field.options[] | select(.name=="In Progress") | .id')
-
           echo "INPROGRESS_OPTION_ID=$INPROGRESS_OPTION_ID" >> $GITHUB_ENV
-
           gh api graphql -f query='
           mutation {
             updateProjectV2ItemFieldValue(input: {
@@ -151,7 +134,6 @@ jobs:
               }
             }
           }'
-
           echo "✅ Status atualizado para In Progress"
 
       - name: Comentar na issue
