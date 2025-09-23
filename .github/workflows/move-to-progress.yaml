@@ -192,7 +192,7 @@ jobs:
         # Adicionar comentário na issue
         gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments \
           --method POST \
-          --field body="🚀 **Pipeline Automático**
+          --field body=" **Pipeline Automático**
 
 Esta issue foi automaticamente movida para **In Progress** após ser atribuída para @$ASSIGNEE
 
