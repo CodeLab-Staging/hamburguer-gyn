@@ -1,184 +1,166 @@
-name: Pipeline - Move Issue to In Progress
+name: Move issue to In Progress
 
 on:
   issues:
     types: [assigned]
 
-permissions:
-  issues: write
-  repository-projects: write
-  contents: read
-
 jobs:
   move-to-in-progress:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Move assigned issue from TODO to IN PROGRESS
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        ORGANIZATION: ${{ github.repository_owner }}
-        PROJECT_NUMBER: 2  # ALTERE para o número do seu projeto
-        
-      run: |
-        # Informações da issue
-        ISSUE_ID="${{ github.event.issue.node_id }}"
-        ISSUE_NUMBER="${{ github.event.issue.number }}"
-        ASSIGNEE="${{ github.event.assignee.login }}"
-        REPO_NAME="${{ github.repository }}"
-        
-        echo "🎯 Pipeline iniciado: Issue #$ISSUE_NUMBER → $ASSIGNEE"
-        
-        # Função para buscar projeto (tenta organização primeiro, depois usuário)
-        find_project() {
-          PROJECT_ID=$(gh api graphql -f query='
-            query($org: String!, $number: Int!) {
-              organization(login: $org) {
-                projectV2(number: $number) {
+      - name: Verificar repositório
+        run: echo "Repositório detectado: $GITHUB_REPOSITORY"
+
+      - name: Instalar GitHub CLI
+        run: sudo apt-get install -y gh jq
+
+      - name: Autenticar no GitHub CLI
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | gh auth login --with-token
+
+      - name: Obter informações da issue
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          echo "Número da issue: $ISSUE_NUMBER"
+          echo "Repositório: $REPO_NAME"
+
+          ISSUE_DATA=$(gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER)
+          echo "$ISSUE_DATA" > issue.json
+
+          TITLE=$(echo "$ISSUE_DATA" | jq -r .title)
+          ASSIGNEE=$(echo "$ISSUE_DATA" | jq -r '.assignee.login // "não atribuído"')
+
+          echo "Título da issue: $TITLE"
+          echo "Responsável: $ASSIGNEE"
+
+          echo "TITLE=$TITLE" >> $GITHUB_ENV
+          echo "ASSIGNEE=$ASSIGNEE" >> $GITHUB_ENV
+
+      - name: Obter ID do projeto
+        env:
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          PROJECT_DATA=$(gh api graphql -f query='
+          {
+            repository(owner: "'${REPO_NAME%/*}'", name: "'${REPO_NAME#*/}'") {
+              projectsV2(first: 10) {
+                nodes {
                   id
                   title
                 }
               }
-            }' -f org="$ORGANIZATION" -F number="$PROJECT_NUMBER" --jq '.data.organization.projectV2.id' 2>/dev/null || echo "")
-          
-          if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-            PROJECT_ID=$(gh api graphql -f query='
-              query($user: String!, $number: Int!) {
-                user(login: $user) {
-                  projectV2(number: $number) {
-                    id
-                    title
-                  }
-                }
-              }' -f user="$ORGANIZATION" -F number="$PROJECT_NUMBER" --jq '.data.user.projectV2.id' 2>/dev/null || echo "")
-          fi
-          
-          echo "$PROJECT_ID"
-        }
-        
-        PROJECT_ID=$(find_project)
-        
-        if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
-          echo "❌ Projeto #$PROJECT_NUMBER não encontrado"
-          exit 1
-        fi
-        
-        echo "✅ Projeto encontrado: $PROJECT_ID"
-        
-        # Buscar se a issue já está no projeto
-        ITEM_ID=$(gh api graphql -f query='
-          query($projectId: ID!, $issueId: ID!) {
-            node(id: $projectId) {
-              ... on ProjectV2 {
-                items(first: 100) {
-                  nodes {
-                    id
-                    content {
-                      ... on Issue {
-                        id
-                        number
-                      }
-                    }
-                  }
-                }
-              }
             }
-          }' -f projectId="$PROJECT_ID" -f issueId="$ISSUE_ID" --jq '.data.node.items.nodes[] | select(.content.id == "'$ISSUE_ID'") | .id')
-        
-        if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" = "null" ]; then
-          echo "📌 Adicionando issue ao projeto..."
-          ITEM_ID=$(gh api graphql -f query='
-            mutation($projectId: ID!, $contentId: ID!) {
-              addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-                item {
-                  id
-                }
-              }
-            }' -f projectId="$PROJECT_ID" -f contentId="$ISSUE_ID" --jq '.data.addProjectV2ItemById.item.id')
-          
-          if [ -z "$ITEM_ID" ]; then
-            echo "❌ Erro ao adicionar issue ao projeto"
-            exit 1
-          fi
-          
-          echo "✅ Issue adicionada ao projeto: $ITEM_ID"
-        else
-          echo "✅ Issue já existe no projeto: $ITEM_ID"
-        fi
-        
-        # Buscar campos do projeto
-        FIELDS_DATA=$(gh api graphql -f query='
-          query($projectId: ID!) {
-            node(id: $projectId) {
+          }')
+
+          echo "$PROJECT_DATA" | jq .
+
+          PROJECT_ID=$(echo "$PROJECT_DATA" | jq -r '.data.repository.projectsV2.nodes[] | select(.title=="Kanban") | .id')
+
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+          echo "Projeto encontrado: $PROJECT_ID"
+
+      - name: Obter campos do projeto
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+        run: |
+          FIELDS=$(gh api graphql -f query='
+          {
+            node(id: "'$PROJECT_ID'") {
               ... on ProjectV2 {
                 fields(first: 20) {
                   nodes {
-                    ... on ProjectV2Field {
+                    id
+                    name
+                  }
+                }
+              }
+            }
+          }')
+
+          echo "$FIELDS" | jq .
+
+          STATUS_FIELD_ID=$(echo "$FIELDS" | jq -r '.data.node.fields.nodes[] | select(.name=="Status") | .id')
+
+          echo "STATUS_FIELD_ID=$STATUS_FIELD_ID" >> $GITHUB_ENV
+          echo "Campo Status: $STATUS_FIELD_ID"
+
+      - name: Adicionar issue ao projeto
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REPO_NAME: ${{ github.repository }}
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+        run: |
+          ITEM_DATA=$(gh api graphql -f query='
+          mutation {
+            addProjectV2ItemById(input: {projectId: "'$PROJECT_ID'", contentId: "'$(gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER --jq .node_id)'"}) {
+              item {
+                id
+              }
+            }
+          }')
+
+          echo "$ITEM_DATA" | jq .
+
+          ITEM_ID=$(echo "$ITEM_DATA" | jq -r '.data.addProjectV2ItemById.item.id')
+
+          echo "ITEM_ID=$ITEM_ID" >> $GITHUB_ENV
+          echo "Item adicionado ao projeto: $ITEM_ID"
+
+      - name: Atualizar status para In Progress
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          ITEM_ID: ${{ env.ITEM_ID }}
+          STATUS_FIELD_ID: ${{ env.STATUS_FIELD_ID }}
+        run: |
+          OPTIONS=$(gh api graphql -f query='
+          {
+            node(id: "'$PROJECT_ID'") {
+              ... on ProjectV2 {
+                field(id: "'$STATUS_FIELD_ID'") {
+                  ... on ProjectV2SingleSelectField {
+                    options {
                       id
                       name
-                    }
-                    ... on ProjectV2SingleSelectField {
-                      id
-                      name
-                      options {
-                        id
-                        name
-                      }
                     }
                   }
                 }
               }
             }
-          }' -f projectId="$PROJECT_ID")
-        
-        STATUS_FIELD_ID=$(echo "$FIELDS_DATA" | jq -r '.data.node.fields.nodes[] | select(.name | test("Status|status|Estado|estado")) | .id')
-        
-        if [ -z "$STATUS_FIELD_ID" ] || [ "$STATUS_FIELD_ID" = "null" ]; then
-          echo "❌ Campo 'Status' não encontrado"
-          echo "$FIELDS_DATA" | jq -r '.data.node.fields.nodes[].name'
-          exit 1
-        fi
-        
-        echo "✅ Campo Status encontrado: $STATUS_FIELD_ID"
-        
-        STATUS_OPTIONS=$(echo "$FIELDS_DATA" | jq -r '.data.node.fields.nodes[] | select(.id == "'$STATUS_FIELD_ID'") | .options[]')
-        
-        IN_PROGRESS_OPTION_ID=$(echo "$STATUS_OPTIONS" | jq -r 'select(.name | test("In Progress|IN PROGRESS|Em Progresso|Em andamento|Doing|DOING|Development|Desenvolvimento|Working|Trabalhando"; "i")) | .id')
-        
-        if [ -z "$IN_PROGRESS_OPTION_ID" ] || [ "$IN_PROGRESS_OPTION_ID" = "null" ]; then
-          echo "❌ Opção 'In Progress' não encontrada"
-          echo "$STATUS_OPTIONS" | jq -r '.name'
-          exit 1
-        fi
-        
-        echo "✅ Opção 'In Progress' encontrada: $IN_PROGRESS_OPTION_ID"
-        
-        echo "🔄 Movendo issue para 'In Progress'..."
-        
-        UPDATE_RESULT=$(gh api graphql -f query='
-          mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+          }')
+
+          echo "$OPTIONS" | jq .
+
+          INPROGRESS_OPTION_ID=$(echo "$OPTIONS" | jq -r '.data.node.field.options[] | select(.name=="In Progress") | .id')
+
+          echo "INPROGRESS_OPTION_ID=$INPROGRESS_OPTION_ID" >> $GITHUB_ENV
+
+          gh api graphql -f query='
+          mutation {
             updateProjectV2ItemFieldValue(input: {
-              projectId: $projectId,
-              itemId: $itemId,
-              fieldId: $fieldId,
-              value: {singleSelectOptionId: $optionId}
+              projectId: "'$PROJECT_ID'",
+              itemId: "'$ITEM_ID'",
+              fieldId: "'$STATUS_FIELD_ID'",
+              value: { singleSelectOptionId: "'$INPROGRESS_OPTION_ID'" }
             }) {
               projectV2Item {
                 id
               }
             }
-          }' -f projectId="$PROJECT_ID" -f itemId="$ITEM_ID" -f fieldId="$STATUS_FIELD_ID" -f optionId="$IN_PROGRESS_OPTION_ID")
-        
-        if [ "$(echo "$UPDATE_RESULT" | jq -r '.data.updateProjectV2ItemFieldValue.projectV2Item.id')" != "null" ]; then
-          echo "✅ Issue #$ISSUE_NUMBER movida para 'In Progress' com sucesso!"
-        else
-          echo "❌ Erro ao atualizar status da issue"
-          echo "$UPDATE_RESULT"
-          exit 1
-        fi
-        
-        # Adicionar comentário na issue (usando bloco seguro)
-        COMMENT_BODY=$(cat <<EOF
+          }'
+
+          echo "✅ Status atualizado para In Progress"
+
+      - name: Comentar na issue
+        env:
+          REPO_NAME: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ASSIGNEE: ${{ env.ASSIGNEE }}
+        run: |
+          COMMENT_BODY=$(cat <<EOF
 🚀 **Pipeline Automático**
 
 Esta issue foi automaticamente movida para **In Progress** após ser atribuída para @$ASSIGNEE
@@ -189,9 +171,9 @@ Esta issue foi automaticamente movida para **In Progress** após ser atribuída 
 EOF
 )
 
-        gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments \
-          --method POST \
-          --field body="$COMMENT_BODY"
+          gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments \
+            --method POST \
+            --field body="$COMMENT_BODY"
 
-        echo "💬 Comentário adicionado na issue"
-        echo "🎉 Pipeline concluído com sucesso!"
+          echo "💬 Comentário adicionado na issue"
+          echo "🎉 Pipeline concluído com sucesso!"
