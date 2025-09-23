@@ -31,7 +31,6 @@ jobs:
         
         # Função para buscar projeto (tenta organização primeiro, depois usuário)
         find_project() {
-          # Tentar buscar na organização
           PROJECT_ID=$(gh api graphql -f query='
             query($org: String!, $number: Int!) {
               organization(login: $org) {
@@ -42,7 +41,6 @@ jobs:
               }
             }' -f org="$ORGANIZATION" -F number="$PROJECT_NUMBER" --jq '.data.organization.projectV2.id' 2>/dev/null || echo "")
           
-          # Se não encontrar na organização, tentar no usuário
           if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
             PROJECT_ID=$(gh api graphql -f query='
               query($user: String!, $number: Int!) {
@@ -58,12 +56,10 @@ jobs:
           echo "$PROJECT_ID"
         }
         
-        # Buscar o projeto
         PROJECT_ID=$(find_project)
         
         if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "null" ]; then
           echo "❌ Projeto #$PROJECT_NUMBER não encontrado"
-          echo "Verifique se o número está correto e se o projeto existe"
           exit 1
         fi
         
@@ -89,10 +85,8 @@ jobs:
             }
           }' -f projectId="$PROJECT_ID" -f issueId="$ISSUE_ID" --jq '.data.node.items.nodes[] | select(.content.id == "'$ISSUE_ID'") | .id')
         
-        # Se a issue não estiver no projeto, adicionar
         if [ -z "$ITEM_ID" ] || [ "$ITEM_ID" = "null" ]; then
           echo "📌 Adicionando issue ao projeto..."
-          
           ITEM_ID=$(gh api graphql -f query='
             mutation($projectId: ID!, $contentId: ID!) {
               addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
@@ -137,34 +131,28 @@ jobs:
             }
           }' -f projectId="$PROJECT_ID")
         
-        # Buscar campo Status
         STATUS_FIELD_ID=$(echo "$FIELDS_DATA" | jq -r '.data.node.fields.nodes[] | select(.name | test("Status|status|Estado|estado")) | .id')
         
         if [ -z "$STATUS_FIELD_ID" ] || [ "$STATUS_FIELD_ID" = "null" ]; then
-          echo "❌ Campo 'Status' não encontrado no projeto"
-          echo "Campos disponíveis:"
+          echo "❌ Campo 'Status' não encontrado"
           echo "$FIELDS_DATA" | jq -r '.data.node.fields.nodes[].name'
           exit 1
         fi
         
         echo "✅ Campo Status encontrado: $STATUS_FIELD_ID"
         
-        # Buscar opções do campo Status
         STATUS_OPTIONS=$(echo "$FIELDS_DATA" | jq -r '.data.node.fields.nodes[] | select(.id == "'$STATUS_FIELD_ID'") | .options[]')
         
-        # Buscar opção "In Progress" (várias variações)
         IN_PROGRESS_OPTION_ID=$(echo "$STATUS_OPTIONS" | jq -r 'select(.name | test("In Progress|IN PROGRESS|Em Progresso|Em andamento|Doing|DOING|Development|Desenvolvimento|Working|Trabalhando"; "i")) | .id')
         
         if [ -z "$IN_PROGRESS_OPTION_ID" ] || [ "$IN_PROGRESS_OPTION_ID" = "null" ]; then
           echo "❌ Opção 'In Progress' não encontrada"
-          echo "Opções disponíveis no Status:"
           echo "$STATUS_OPTIONS" | jq -r '.name'
           exit 1
         fi
         
         echo "✅ Opção 'In Progress' encontrada: $IN_PROGRESS_OPTION_ID"
         
-        # Atualizar o status da issue
         echo "🔄 Movendo issue para 'In Progress'..."
         
         UPDATE_RESULT=$(gh api graphql -f query='
@@ -189,18 +177,21 @@ jobs:
           exit 1
         fi
         
-        # Adicionar comentário na issue
-COMMENT_BODY="🚀 **Pipeline Automático**
+        # Adicionar comentário na issue (usando bloco seguro)
+        COMMENT_BODY=$(cat <<EOF
+🚀 **Pipeline Automático**
 
 Esta issue foi automaticamente movida para **In Progress** após ser atribuída para @$ASSIGNEE
 
 📊 **Status**: TODO → IN PROGRESS  
 🤖 **Ação**: Automática via GitHub Actions  
-⏰ **Data**: $(date '+%d/%m/%Y às %H:%M')"
-        
+⏰ **Data**: $(date '+%d/%m/%Y às %H:%M')
+EOF
+)
+
         gh api repos/$REPO_NAME/issues/$ISSUE_NUMBER/comments \
           --method POST \
           --field body="$COMMENT_BODY"
-        
+
         echo "💬 Comentário adicionado na issue"
         echo "🎉 Pipeline concluído com sucesso!"
