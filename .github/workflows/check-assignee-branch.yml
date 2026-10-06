@@ -1,0 +1,102 @@
+name: Verificar Assignee e Branch (In Progress)
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # a cada 15 minutos
+  workflow_dispatch: # permite rodar manualmente pela aba Actions
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-in-progress:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar issues em "In Progress"
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const ORG = context.repo.owner;
+            const PROJECT_NUMBER = 2;
+            const LABEL = 'aguardando-assignee-branch';
+            const MARKER = '<!-- check-assignee-branch-bot -->';
+
+            // Garante que a label existe
+            try {
+              await github.rest.issues.getLabel({ owner: context.repo.owner, repo: context.repo.repo, name: LABEL });
+            } catch (e) {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                name: LABEL, color: 'D93F0B',
+                description: 'Faltando assignee e/ou branch vinculada'
+              });
+            }
+
+            // Busca itens do Project (org, número 2) com Status = In Progress
+            const query = `
+              query($org: String!, $number: Int!, $cursor: String) {
+                organization(login: $org) {
+                  projectV2(number: $number) {
+                    items(first: 100, after: $cursor) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        fieldValueByName(name: "Status") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { name }
+                        }
+                        content {
+                          ... on Issue {
+                            id number url
+                            repository { name owner { login } }
+                            assignees(first: 5) { totalCount }
+                            linkedBranches(first: 5) { totalCount }
+                            labels(first: 30) { nodes { name } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }`;
+
+            let cursor = null, items = [];
+            while (true) {
+              const res = await github.graphql(query, { org: ORG, number: PROJECT_NUMBER, cursor });
+              const conn = res.organization.projectV2.items;
+              items = items.concat(conn.nodes);
+              if (!conn.pageInfo.hasNextPage) break;
+              cursor = conn.pageInfo.endCursor;
+            }
+
+            for (const item of items) {
+              const status = item.fieldValueByName?.name;
+              const issue = item.content;
+              if (status !== 'In Progress' || !issue || !issue.number) continue;
+
+              const owner = issue.repository.owner.login;
+              const repo = issue.repository.name;
+              const missingAssignee = issue.assignees.totalCount === 0;
+              const missingBranch = issue.linkedBranches.totalCount === 0;
+              const hasLabel = issue.labels.nodes.some(l => l.name === LABEL);
+
+              if (!missingAssignee && !missingBranch) {
+                if (hasLabel) {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: LABEL }).catch(() => {});
+                }
+                continue;
+              }
+
+              if (hasLabel) continue; // já avisado, evita spam
+
+              const faltando = [
+                missingAssignee ? '- **assignee**' : null,
+                missingBranch ? '- **branch vinculada**' : null,
+              ].filter(Boolean).join('\n');
+
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [LABEL] });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `${MARKER}\n⚠️ Esta issue está em **In Progress** mas falta:\n${faltando}\n\nPor favor, atribua um responsável e/ou vincule uma branch (seção "Development" da issue).`
+              });
+            }
