@@ -1,0 +1,44 @@
+name: Alerta de atividades atrasadas
+
+on:
+  schedule:
+    # Roda todo dia as 08:00 (Brasilia = 11:00 UTC); o script decide se ja e hora de um novo aviso
+    - cron: "0 11 * * *"
+  workflow_dispatch: # permite rodar manualmente pela aba Actions
+    inputs:
+      issue_teste:
+        description: "Teste: numero da issue para comentar agora, ignorando o intervalo (deixe vazio para rodar normal)"
+        required: false
+        default: ""
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  verificar-atrasos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verificar issues atrasadas e comentar nelas
+        env:
+          # Token pessoal com acesso ao Project da organizacao (leitura do Kanban)
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          # Token do proprio workflow: os comentarios aparecem como github-actions[bot]
+          COMMENT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: CodeLab-Staging
+          PROJECT_NUMBER: "2"
+          STATUS_FIELD: Status
+          STATUS_ALVO: "In Progress,Test"
+          DATE_FIELD: Target date
+          # Publica um novo aviso a cada N dias enquanto a atividade estiver atrasada
+          INTERVALO_DIAS: "2"
+          ISSUE_TESTE: ${{ github.event.inputs.issue_teste }}
+        run: python .github/scripts/alerta_atraso.py
