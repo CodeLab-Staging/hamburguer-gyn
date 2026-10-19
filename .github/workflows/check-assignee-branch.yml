@@ -66,7 +66,7 @@ jobs:
                             id number url state
                             repository { name owner { login } }
                             assignees(first: 20) { totalCount nodes { login } }
-                            linkedBranches(first: 5) { totalCount }
+                            linkedBranches(first: 10) { nodes { ref { name } } }
                             labels(first: 50) { nodes { name } }
                             issueFieldValues(first: 20) {
                               nodes {
@@ -126,7 +126,7 @@ jobs:
 
               const checks = [
                 { key: 'assignee', ok: issue.assignees.totalCount > 0, texto: '**Assignee** (responsável pela issue)' },
-                { key: 'branch',   ok: issue.linkedBranches.totalCount > 0, texto: '**Branch vinculada** (seção "Development" da issue)' },
+                { key: 'branch',   ok: issue.linkedBranches.nodes.some(b => b?.ref), texto: '**Branch vinculada** (seção "Development" da issue)' },
                 { key: 'start',    ok: !!lerData(item.inicio, issue, START_FIELD), texto: `**${START_FIELD}** (data de início)` },
                 { key: 'target',   ok: !!lerData(item.prazo, issue, TARGET_FIELD), texto: `**${TARGET_FIELD}** (data prevista de entrega)` },
               ];
