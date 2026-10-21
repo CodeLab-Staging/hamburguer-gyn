@@ -67,6 +67,7 @@ jobs:
                             repository { name owner { login } }
                             assignees(first: 20) { totalCount nodes { login } }
                             linkedBranches(first: 10) { nodes { ref { name } } }
+                            closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { number } }
                             labels(first: 50) { nodes { name } }
                             issueFieldValues(first: 20) {
                               nodes {
@@ -124,11 +125,15 @@ jobs:
               const issue_number = issue.number;
               const labelsAtuais = issue.labels.nodes.map(l => l.name);
 
+              // Considera satisfeito se houver branch vinculada OU pull request vinculado na secao Development
+              const prsVinculados = issue.closedByPullRequestsReferences?.nodes || [];
+              const temBranchOuPr = issue.linkedBranches.nodes.some(b => b?.ref) || prsVinculados.length > 0;
+
               const checks = [
-                { key: 'assignee', ok: issue.assignees.totalCount > 0, texto: '**Assignee** (responsável pela issue)' },
-                { key: 'branch',   ok: issue.linkedBranches.nodes.some(b => b?.ref), texto: '**Branch vinculada** (seção "Development" da issue)' },
-                { key: 'start',    ok: !!lerData(item.inicio, issue, START_FIELD), texto: `**${START_FIELD}** (data de início)` },
-                { key: 'target',   ok: !!lerData(item.prazo, issue, TARGET_FIELD), texto: `**${TARGET_FIELD}** (data prevista de entrega)` },
+                { key: 'assignee', ok: issue.assignees.totalCount > 0, texto: '**Assignee** (responsável pela issue)', acao: 'atribua um responsável' },
+                { key: 'branch', ok: temBranchOuPr, texto: '**Branch ou pull request vinculado** (seção "Development" da issue)', acao: 'vincule uma branch ou um pull request na seção "Development"' },
+                { key: 'start', ok: !!lerData(item.inicio, issue, START_FIELD), texto: `**${START_FIELD}** (data de início)`, acao: `preencha o campo **${START_FIELD}**` },
+                { key: 'target', ok: !!lerData(item.prazo, issue, TARGET_FIELD), texto: `**${TARGET_FIELD}** (data prevista de entrega)`, acao: `preencha o campo **${TARGET_FIELD}**` },
               ];
               const pendente = checks.some(c => !c.ok);
               const jaAvisada = labelsAtuais.some(n => NOMES_LABELS.includes(n) || n === LABEL_ANTIGA);
@@ -155,7 +160,7 @@ jobs:
                   if (aviso) {
                     await github.rest.issues.updateComment({
                       owner, repo, comment_id: aviso.id,
-                      body: `${MARKER}\n✅ Pendências resolvidas: esta issue já tem assignee, branch vinculada, ${START_FIELD} e ${TARGET_FIELD}. Obrigado!`
+                      body: `${MARKER}\n✅ Pendências resolvidas: esta issue já tem assignee, branch ou pull request vinculado, ${START_FIELD} e ${TARGET_FIELD}. Obrigado!`
                     });
                   }
                   console.log(`#${issue_number}: tudo ok, labels removidas`);
@@ -164,13 +169,17 @@ jobs:
               }
 
               const mencoes = issue.assignees.nodes.map(a => `@${a.login}`).join(' ');
-              const lista = checks.map(c => `- [${c.ok ? 'x' : ' '}] ${c.texto}`).join('\n');
+              // Lista somente o que esta faltando
+              const faltando = checks.filter(c => !c.ok);
+              const lista = faltando.map(c => `- ${c.texto}`).join('\n');
+              const juntar = arr => arr.length <= 1 ? arr.join('') : `${arr.slice(0, -1).join(', ')} e ${arr[arr.length - 1]}`;
+              const acoes = juntar(faltando.map(c => c.acao));
+              const faltaData = faltando.some(c => c.key === 'start' || c.key === 'target');
               const body =
                 `${MARKER}\n` +
-                `⚠️ ${mencoes ? mencoes + ', esta' : 'Esta'} issue está em **${STATUS_ALVO}**, mas ainda tem pendências:\n\n` +
+                `⚠️ ${mencoes ? mencoes + ', esta' : 'Esta'} issue está em **${STATUS_ALVO}**, mas ainda falta:\n\n` +
                 `${lista}\n\n` +
-                `Atribua um responsável, vincule uma branch e preencha os campos **${START_FIELD}** e **${TARGET_FIELD}** ` +
-                `(na barra lateral da issue ou no Project). Este aviso é atualizado automaticamente.`;
+                `Para resolver, ${acoes}${faltaData ? ' (na barra lateral da issue ou no Project)' : ''}. Este aviso é atualizado automaticamente.`;
 
               if (jaAvisada) {
                 // Ja avisada: so atualiza o comentario existente se as pendencias mudaram (evita spam)
