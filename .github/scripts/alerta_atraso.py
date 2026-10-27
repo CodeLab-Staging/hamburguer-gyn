@@ -2,10 +2,12 @@
 Verifica o GitHub Project da organizacao e comenta nas issues que estao em
 "In Progress" ou "Test" com o Target date vencido, marcando os assignees.
 Cada comentario e numerado: primeiro aviso, segundo aviso, terceiro aviso...
+A numeracao continua de onde parou mesmo quando o Target date e renegociado.
 Sem dependencias externas: usa apenas a biblioteca padrao do Python.
 """
 import json
 import os
+import re
 import sys
 import urllib.request
 from datetime import datetime, date
@@ -110,19 +112,34 @@ def token_para(repo):
     return COMMENT_TOKEN if repo == REPO_ATUAL else TOKEN
 
 
+def numero_do_aviso(corpo):
+    """Le o numero do aviso no titulo: "Terceiro aviso de atraso" = 3, "11º aviso de atraso" = 11."""
+    m = re.search(r"([\wÀ-ú]+)\s+aviso de atraso", corpo, re.IGNORECASE)
+    if not m:
+        return 0
+    palavra = m.group(1).lower()
+    for i, o in enumerate(ORDINAIS):
+        if o.lower() == palavra:
+            return i + 1
+    return int(re.sub(r"\D", "", palavra) or 0)
+
+
 def avisos_anteriores(repo, numero):
-    """Retorna a lista de datas dos avisos ja publicados pelo bot na issue."""
-    datas, pagina = [], 1
+    """Retorna a lista (data, numero) dos avisos de atraso ja publicados na issue."""
+    avisos, pagina = [], 1
     while True:
         url = (f"https://api.github.com/repos/{repo}/issues/{numero}/comments"
                f"?per_page=100&page={pagina}")
         comentarios = api(url, token_para(repo))
         for c in comentarios:
-            if MARCADOR in (c.get("body") or ""):
+            corpo = c.get("body") or ""
+            do_bot = (c.get("user") or {}).get("login") == "github-actions[bot]"
+            if MARCADOR in corpo or (do_bot and "aviso de atraso" in corpo.lower()):
                 criado = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
-                datas.append(criado.astimezone(ZoneInfo("America/Sao_Paulo")).date())
+                avisos.append((criado.astimezone(ZoneInfo("America/Sao_Paulo")).date(),
+                               numero_do_aviso(corpo)))
         if len(comentarios) < 100:
-            return datas
+            return avisos
         pagina += 1
 
 
@@ -185,12 +202,13 @@ def main():
 
         # Primeiro aviso logo no 1o dia de atraso; depois, a cada INTERVALO_DIAS
         if anteriores and not ISSUE_TESTE:
-            desde_ultimo = (HOJE - max(anteriores)).days
+            desde_ultimo = (HOJE - max(d for d, _ in anteriores)).days
             if desde_ultimo < INTERVALO_DIAS:
                 print(f"#{numero} atrasada ({dias} dias), ultimo aviso ha {desde_ultimo} dia(s): sem aviso hoje")
                 continue
 
-        n_aviso = len(anteriores) + 1
+        # A numeracao continua de onde parou, mesmo se o Target date foi renegociado
+        n_aviso = max((n or i + 1 for i, (_, n) in enumerate(anteriores)), default=0) + 1
         assignees = [p["login"] for p in issue["assignees"]["nodes"]]
         corpo = montar_mensagem(n_aviso, assignees, status, prazo, dias, projeto)
         api(f"https://api.github.com/repos/{repo}/issues/{numero}/comments",
